@@ -1,0 +1,96 @@
+# Draw Your Hero for Fire TV (Vega OS).
+# Based on Amazon's react-native-multi-tv-app-sample (MIT-0). The sample's
+# video-player entries (DRM, content launcher, media controls) were removed:
+# this app only plays narration and sound effects.
+schema-version = 1
+
+[package]
+title = "Draw Your Hero"
+version = "1.0.0"
+id = "com.drawyourhero.tv"
+icon = "@image/icon.png"
+
+[os.version]
+min = "1.2"
+target = "1.2"
+
+[components]
+[[components.interactive]]
+id = "com.drawyourhero.tv.main"
+runtime-module = "/com.amazon.kepler.keplerscript.runtime.loader_2@IKeplerScript_2_0"
+launch-type = "singleton"
+categories = ["com.amazon.category.main"]
+
+[processes]
+[[processes.group]]
+component-ids = ["com.drawyourhero.tv.main"]
+
+## Optional capabilities --------------------------------------------------------
+[wants]
+# Remote button events
+[[wants.service]]
+id = "com.amazon.inputd.service"
+
+[[wants.service]]
+id = "com.amazon.inputmethod.service"
+
+# Audio playback for the narration (W3C media AudioPlayer)
+[[wants.service]]
+id = "com.amazon.media.server"
+
+[[wants.service]]
+id = "com.amazon.mediametrics.service"
+
+[[wants.service]]
+id = "com.amazon.mediabuffer.service"
+
+[[wants.service]]
+id = "com.amazon.mediatransform.service"
+
+[[wants.service]]
+id = "com.amazon.media.playersession.service"
+
+[[wants.service]]
+id = "com.amazon.gipc.uuid.*"
+
+[[wants.service]]
+id = "com.amazon.audio.stream"
+
+[[wants.service]]
+id = "com.amazon.audio.control"
+
+[[wants.service]]
+id = "com.amazon.audio.system"
+
+# Network status
+[[wants.service]]
+id = "com.amazon.network.service"
+
+# Accessibility (screen reader settings)
+[[wants.privilege]]
+id = "com.amazon.devconf.privilege.accessibility"
+
+## Required capabilities --------------------------------------------------------
+[needs]
+[[needs.privilege]]
+id = "com.amazon.network.privilege.net-info"
+
+[[needs.module]]
+id = "/com.amazon.vega.os@IVega_1_2"
+
+## Offers -----------------------------------------------------------------------
+[offers]
+[[offers.service]]
+id = "com.amazon.gipc.uuid.*"
+
+[[offers.interaction]]
+id = "com.drawyourhero.tv.main"
+
+[[offers.module]]
+id = "/com.drawyourhero.tv.main@IMod1"
+includes-messages = ["pkg://com.drawyourhero.tv.main"]
+
+[[message]]
+uri = "pkg://com.drawyourhero.tv.main"
+sender-privileges = ["*"]
+receiver-privileges = ["self"]

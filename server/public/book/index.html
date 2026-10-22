@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#120E33" />
+    <meta name="robots" content="noindex" />
+    <title>Our storybook · Draw Your Hero</title>
+    <link rel="icon" href="/phone/icon-180.png" />
+    <link rel="apple-touch-icon" href="/phone/icon-180.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/book-assets/book.css" />
+  </head>
+  <body>
+    <header class="cover" id="cover">
+      <div class="brand">Draw Your <span>Hero!</span></div>
+      <div class="cover-art">
+        <img id="coverHero" alt="" />
+      </div>
+      <h1 id="title">Loading your story…</h1>
+      <p class="byline" id="byline"></p>
+      <div class="actions">
+        <button class="btn primary" id="playAll">▶ Read it to me</button>
+        <button class="btn" id="saveBtn">💾 Save as PDF</button>
+        <button class="btn" id="shareBtn" hidden>📤 Share</button>
+      </div>
+      <p class="note">This private link works for 24 hours. Save it as a PDF to keep it forever.</p>
+    </header>
+
+    <main id="pages"></main>
+
+    <footer class="theend" id="theend" hidden>
+      <div class="end-word">The End</div>
+      <p id="endLine"></p>
+      <p class="made">Made with Draw Your Hero on Fire TV · Amazon Bedrock & Amazon Polly</p>
+    </footer>
+
+    <script src="/book-assets/book.js"></script>
+  </body>
+</html>

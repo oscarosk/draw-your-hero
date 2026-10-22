@@ -1,0 +1,416 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Draw Your Hero story service: a small EC2 server behind CloudFront (HTTPS + WebSockets),
+  S3 for children's drawings and narration (deleted after 1 day), DynamoDB for hero
+  memories (deleted after 7 days), Bedrock + Polly through an IAM role (no keys on disk),
+  CloudWatch logs/metrics/alarms/dashboard, and a monthly AWS Budget.
+
+Parameters:
+  RepoUrl:
+    Type: String
+    Default: https://github.com/oscarosk/draw-your-hero.git
+    Description: Public Git repository with the project.
+  RepoBranch:
+    Type: String
+    Default: main
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues: [t3.micro, t3.small, t3.medium]
+  TextModelId:
+    Type: String
+    Default: amazon.nova-lite-v1:0
+  GuardrailId:
+    Type: String
+    Default: ''
+    Description: Optional Bedrock Guardrail ID (leave empty to skip).
+  GuardrailVersion:
+    Type: String
+    Default: DRAFT
+  NarratorVoice:
+    Type: String
+    Default: Ruth
+    Description: Amazon Polly narrator voice.
+  MaxStoriesPerDay:
+    Type: Number
+    Default: 300
+    Description: Daily cap on AI stories (after that the built-in stories are used), to keep costs predictable.
+  AlertEmail:
+    Type: String
+    Description: Email for the budget and alarm notifications (you must confirm the SNS email).
+  MonthlyBudgetUsd:
+    Type: Number
+    Default: 30
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Conditions:
+  HasGuardrail: !Not [!Equals [!Ref GuardrailId, '']]
+
+Resources:
+  # ---------------------------------------------------------------- storage
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      LifecycleConfiguration:
+        Rules:
+          - Id: delete-childrens-media-after-a-day
+            Status: Enabled
+            ExpirationInDays: 1
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }
+
+  HeroesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{ AttributeName: fp, AttributeType: S }]
+      KeySchema: [{ AttributeName: fp, KeyType: HASH }]
+      TimeToLiveSpecification: { AttributeName: expiresAt, Enabled: true }
+      SSESpecification: { SSEEnabled: true }
+
+  ServerLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /draw-your-hero/${AWS::StackName}/server
+      RetentionInDays: 14
+
+  # ---------------------------------------------------------------- permissions
+  ServerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: draw-your-hero
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: StoryAndVision
+                Effect: Allow
+                Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+                Resource:
+                  - arn:aws:bedrock:*::foundation-model/amazon.nova-*
+                  - !Sub arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*
+              - Sid: ChildSafety
+                Effect: Allow
+                Action: bedrock:ApplyGuardrail
+                Resource: !Sub arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:guardrail/*
+              - Sid: Narration
+                Effect: Allow
+                Action: polly:SynthesizeSpeech
+                Resource: '*'
+              - Sid: Media
+                Effect: Allow
+                Action: [s3:GetObject, s3:PutObject]
+                Resource: !Sub ${MediaBucket.Arn}/*
+              - Sid: HeroMemory
+                Effect: Allow
+                Action: [dynamodb:Scan, dynamodb:PutItem, dynamodb:GetItem]
+                Resource: !GetAtt HeroesTable.Arn
+              - Sid: Metrics
+                Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: '*'
+                Condition:
+                  StringEquals: { 'cloudwatch:namespace': DrawYourHero }
+              - Sid: LearnPublicUrl
+                Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource: !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*
+
+  ServerProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref ServerRole]
+
+  # ---------------------------------------------------------------- server
+  ServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Draw Your Hero story service (CloudFront talks to port 8787)
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8787
+          ToPort: 8787
+          CidrIp: 0.0.0.0/0
+
+  ServerLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        MetadataOptions: { HttpTokens: required, HttpEndpoint: enabled }
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs: { VolumeSize: 16, VolumeType: gp3, Encrypted: true }
+
+  Server:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref ServerProfile
+      SecurityGroupIds: [!GetAtt ServerSecurityGroup.GroupId]
+      LaunchTemplate:
+        LaunchTemplateId: !Ref ServerLaunchTemplate
+        Version: !GetAtt ServerLaunchTemplate.LatestVersionNumber
+      Tags: [{ Key: Name, Value: draw-your-hero }]
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+            set -euxo pipefail
+            exec > >(tee /var/log/dyh-setup.log) 2>&1
+
+            dnf install -y git amazon-cloudwatch-agent
+            dnf install -y nodejs20 nodejs20-npm || dnf install -y nodejs nodejs-npm
+            for b in node npm npx; do
+              if [ -x /usr/bin/$b-20 ]; then ln -sf /usr/bin/$b-20 /usr/local/bin/$b; else ln -sf /usr/bin/$b /usr/local/bin/$b; fi
+            done
+            export PATH=/usr/local/bin:$PATH
+            node --version
+
+            useradd --system --home /opt/dyh --shell /sbin/nologin dyh || true
+            git clone --depth 1 --branch ${RepoBranch} ${RepoUrl} /opt/dyh
+            cd /opt/dyh/server
+            npm ci --omit=dev || npm install --omit=dev
+            mkdir -p /var/log/dyh media data
+            chown -R dyh:dyh /opt/dyh /var/log/dyh
+
+            cat > /opt/dyh/server/.env <<ENV
+            MODE=aws
+            PORT=8787
+            AWS_REGION=${AWS::Region}
+            TEXT_MODEL_ID=${TextModelId}
+            GUARDRAIL_ID=${GuardrailIdValue}
+            GUARDRAIL_VERSION=${GuardrailVersion}
+            POLLY_VOICE=${NarratorVoice}
+            POLLY_GENERATIVE=true
+            MEDIA_BUCKET=${MediaBucket}
+            HEROES_TABLE=${HeroesTable}
+            METRICS_NAMESPACE=DrawYourHero
+            MAX_STORIES_PER_DAY=${MaxStoriesPerDay}
+            PUBLIC_URL=http://localhost:8787
+            ENV
+            chown dyh:dyh /opt/dyh/server/.env && chmod 600 /opt/dyh/server/.env
+
+            cat > /etc/systemd/system/dyh.service <<UNIT
+            [Unit]
+            Description=Draw Your Hero story service
+            After=network-online.target
+            [Service]
+            User=dyh
+            WorkingDirectory=/opt/dyh/server
+            Environment=PATH=/usr/local/bin:/usr/bin
+            Environment=NODE_ENV=production
+            ExecStart=/usr/local/bin/node /opt/dyh/server/node_modules/tsx/dist/cli.mjs src/index.ts
+            Restart=always
+            RestartSec=3
+            StandardOutput=append:/var/log/dyh/server.log
+            StandardError=append:/var/log/dyh/server.log
+            [Install]
+            WantedBy=multi-user.target
+            UNIT
+
+            # One command to deploy the latest code from GitHub: sudo dyh-update
+            cat > /usr/local/bin/dyh-update <<'UPD'
+            #!/bin/bash
+            set -euo pipefail
+            export PATH=/usr/local/bin:$PATH
+            cd /opt/dyh && sudo -u dyh git pull --ff-only
+            cd server && sudo -u dyh npm ci --omit=dev || sudo -u dyh npm install --omit=dev
+            systemctl restart dyh && sleep 3 && curl -s localhost:8787/health
+            UPD
+            chmod +x /usr/local/bin/dyh-update
+            git config --system --add safe.directory /opt/dyh
+
+            cat > /opt/aws/amazon-cloudwatch-agent/etc/dyh.json <<CWA
+            {"logs":{"logs_collected":{"files":{"collect_list":[
+              {"file_path":"/var/log/dyh/server.log","log_group_name":"${ServerLogs}","log_stream_name":"{instance_id}"},
+              {"file_path":"/var/log/dyh-setup.log","log_group_name":"${ServerLogs}","log_stream_name":"{instance_id}-setup"}
+            ]}}}}
+            CWA
+            /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/dyh.json
+
+            systemctl daemon-reload
+            systemctl enable --now dyh
+
+            # The HTTPS address comes from CloudFront, which finishes after this
+            # server boots: wait for the stack output, then restart with it.
+            for i in $(seq 1 120); do
+              URL=$(aws cloudformation describe-stacks --region ${AWS::Region} --stack-name ${AWS::StackName} \
+                --query "Stacks[0].Outputs[?OutputKey=='PublicUrl'].OutputValue" --output text 2>/dev/null || true)
+              if [[ "$URL" == https://* ]]; then
+                sed -i "s#^PUBLIC_URL=.*#PUBLIC_URL=$URL#" /opt/dyh/server/.env
+                systemctl restart dyh
+                echo "public url: $URL"
+                break
+              fi
+              sleep 20
+            done
+          - GuardrailIdValue: !If [HasGuardrail, !Ref GuardrailId, '']
+
+  ServerIp:
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref Server
+      Tags: [{ Key: Name, Value: draw-your-hero }]
+
+  # ---------------------------------------------------------------- HTTPS + WebSockets
+  Cdn:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: Draw Your Hero
+        HttpVersion: http2and3
+        PriceClass: PriceClass_200
+        Origins:
+          - Id: server
+            DomainName: !Join
+              - ''
+              - - 'ec2-'
+                - !Join ['-', !Split ['.', !Ref ServerIp]]
+                - !Sub '.${AWS::Region}.compute.amazonaws.com'
+            CustomOriginConfig:
+              HTTPPort: 8787
+              OriginProtocolPolicy: http-only
+              OriginReadTimeout: 60
+              OriginKeepaliveTimeout: 60
+        DefaultCacheBehavior:
+          TargetOriginId: server
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # Managed-CachingDisabled
+          OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3 # Managed-AllViewer (WebSockets need it)
+        CacheBehaviors:
+          - PathPattern: /static/*
+            TargetOriginId: server
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # Managed-CachingOptimized
+          - PathPattern: /media/*
+            TargetOriginId: server
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            Compress: false
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+
+  # ---------------------------------------------------------------- watching it
+  Alerts:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription: [{ Protocol: email, Endpoint: !Ref AlertEmail }]
+
+  RecoverOnHardwareFailure:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Move the server to healthy hardware if AWS detects a host problem.
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_System
+      Dimensions: [{ Name: InstanceId, Value: !Ref Server }]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions: [!Sub 'arn:aws:automate:${AWS::Region}:ec2:recover', !Ref Alerts]
+
+  RebootOnInstanceFailure:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Reboot the server if the operating system stops responding.
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_Instance
+      Dimensions: [{ Name: InstanceId, Value: !Ref Server }]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions: [!Sub 'arn:aws:automate:${AWS::Region}:ec2:reboot', !Ref Alerts]
+
+  AiFallbacksAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Stories are falling back to built-in text (Bedrock errors or throttling).
+      Namespace: DrawYourHero
+      MetricName: StoryFallbacks
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref Alerts]
+
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub draw-your-hero-${AWS::StackName}
+      DashboardBody: !Sub |
+        {"widgets":[
+          {"type":"metric","x":0,"y":0,"width":12,"height":6,"properties":{"title":"Stories","region":"${AWS::Region}","stat":"Sum","period":3600,
+            "metrics":[["DrawYourHero","StoriesStarted"],[".","StoriesFinished"],[".","HeroesDrawn"]]}},
+          {"type":"metric","x":12,"y":0,"width":12,"height":6,"properties":{"title":"Seconds for the AI to write one act","region":"${AWS::Region}","period":3600,
+            "metrics":[["DrawYourHero","ActWriteSeconds",{"stat":"Average"}],["...",{"stat":"p90"}]]}},
+          {"type":"metric","x":0,"y":6,"width":12,"height":6,"properties":{"title":"Fallbacks and safety blocks","region":"${AWS::Region}","stat":"Sum","period":3600,
+            "metrics":[["DrawYourHero","StoryFallbacks"],[".","HeroFallbacks"],[".","GuardrailBlocks"]]}},
+          {"type":"metric","x":12,"y":6,"width":12,"height":6,"properties":{"title":"Server CPU","region":"${AWS::Region}","stat":"Average","period":300,
+            "metrics":[["AWS/EC2","CPUUtilization","InstanceId","${Server}"]]}}
+        ]}
+
+  Budget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Sub draw-your-hero-${AWS::StackName}
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit: { Amount: !Ref MonthlyBudgetUsd, Unit: USD }
+      NotificationsWithSubscribers:
+        - Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 80, ThresholdType: PERCENTAGE }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref AlertEmail }]
+        - Notification: { NotificationType: FORECASTED, ComparisonOperator: GREATER_THAN, Threshold: 100, ThresholdType: PERCENTAGE }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref AlertEmail }]
+
+Outputs:
+  PublicUrl:
+    Description: The story service over HTTPS. Put this in DEFAULT_SERVER_URL for the Fire TV app.
+    Value: !Sub https://${Cdn.DomainName}
+  TryInBrowser:
+    Description: Open on a computer (TV view); scan the QR code with a phone.
+    Value: !Sub https://${Cdn.DomainName}/
+  Health:
+    Value: !Sub https://${Cdn.DomainName}/health
+  DashboardUrl:
+    Value: !Sub https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=draw-your-hero-${AWS::StackName}
+  LogsUrl:
+    Value: !Sub https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#logsV2:log-groups/log-group/${ServerLogs}
+  ServerShell:
+    Description: Open a shell on the server (no SSH keys needed), then run "sudo dyh-update" to deploy the latest code.
+    Value: !Sub https://${AWS::Region}.console.aws.amazon.com/systems-manager/session-manager/${Server}?region=${AWS::Region}
+  MediaBucketName:
+    Value: !Ref MediaBucket
+  HeroesTableName:
+    Value: !Ref HeroesTable

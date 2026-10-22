@@ -1,0 +1,39 @@
+{
+  "name": "draw-your-hero-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Story service for Draw Your Hero: pairs a phone with a Fire TV and turns a child's drawing into a narrated story with Amazon Bedrock and Amazon Polly.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "check:aws": "tsx src/scripts/checkAws.ts",
+    "make:demo": "tsx src/scripts/makeDemo.ts",
+    "try:story": "tsx src/scripts/tryStory.ts",
+    "try:voices": "tsx src/scripts/tryVoices.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.700.0",
+    "@aws-sdk/client-cloudwatch": "^3.1155.0",
+    "@aws-sdk/client-dynamodb": "^3.1155.0",
+    "@aws-sdk/client-polly": "^3.700.0",
+    "@aws-sdk/client-s3": "^3.1155.0",
+    "@aws-sdk/lib-dynamodb": "^3.1155.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "qrcode": "^1.5.4",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.9.0",
+    "@types/qrcode": "^1.5.5",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.6.3"
+  }
+}

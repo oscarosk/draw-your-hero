@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#120E33" />
+    <title>Draw Your Hero</title>
+    <link rel="icon" href="/phone/icon-180.png" />
+    <link rel="apple-touch-icon" href="/phone/icon-180.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/phone/phone.css" />
+  </head>
+  <body>
+    <div class="sky" aria-hidden="true"><div class="stars s1"></div><div class="stars s2"></div><div class="moon"></div></div>
+    <div id="confetti" aria-hidden="true"></div>
+    <header class="top">
+      <div class="brand">Draw Your <span>Hero!</span></div>
+      <div class="link" id="link" aria-live="polite"><span class="dot"></span><span id="linkText">Connecting…</span></div>
+    </header>
+
+    <main id="app">
+      <!-- Connecting -->
+      <section class="screen" data-screen="connecting">
+        <div class="orb" aria-hidden="true"><span>📺</span></div>
+        <h1>Connecting to your TV…</h1>
+      </section>
+
+      <!-- Take a photo -->
+      <section class="screen" data-screen="need-drawing">
+        <div class="paper-card" aria-hidden="true">
+          <img src="/static/demo-hero.png" alt="" class="paper-hero" />
+          <span class="crayon">🖍️</span>
+        </div>
+        <h1>Draw your hero!</h1>
+        <p class="lead">Draw anyone or anything on <b>plain white paper</b> with a dark crayon or marker. Then take a photo.</p>
+        <label class="btn primary big">
+          📷 Take a photo
+          <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden />
+        </label>
+        <label class="btn ghost">
+          Choose a photo instead
+          <input id="galleryInput" type="file" accept="image/*" hidden />
+        </label>
+        <p class="tip">Tip: fill the photo with the paper, in good light, without shadows.</p>
+      </section>
+
+      <!-- Mid-story: draw something for the story -->
+      <section class="screen" data-screen="draw-prop">
+        <div class="talk-head">
+          <img class="hero-thumb glow" id="heroThumb3" alt="" />
+          <div class="bubble"><h1 id="drawTitle">Can you draw it?</h1></div>
+        </div>
+        <div class="pencil" aria-hidden="true">✏️</div>
+        <p class="lead">Draw <b id="drawWhat">it</b> on paper, then take a photo. It will appear in the story!</p>
+        <label class="btn primary big">
+          📷 Take a photo
+          <input id="propCameraInput" type="file" accept="image/*" capture="environment" hidden />
+        </label>
+        <label class="btn ghost">
+          Choose a photo instead
+          <input id="propGalleryInput" type="file" accept="image/*" hidden />
+        </label>
+        <button class="btn ghost" id="sayInsteadBtn">🎤 Say it instead</button>
+      </section>
+
+      <!-- Preview the cut-out -->
+      <section class="screen" data-screen="preview">
+        <h1 id="previewTitle">Is this your hero?</h1>
+        <div class="checker sticker-in"><canvas id="previewCanvas" aria-label="Your drawing, cut out"></canvas></div>
+        <div class="paint" id="paintRow" hidden>
+          <span class="paint-label">🎨 Colour it!</span>
+          <div class="swatches" id="swatches"></div>
+        </div>
+        <button class="btn primary big shine" id="useBtn">✨ Bring it to life!</button>
+        <button class="btn ghost" id="retakeBtn">Take it again</button>
+      </section>
+
+      <!-- Reading the drawing -->
+      <section class="screen" data-screen="reading-drawing">
+        <div class="magic" aria-hidden="true">
+          <div class="rays"></div>
+          <img id="magicHero" alt="" />
+          <i class="sp a">✦</i><i class="sp b">✦</i><i class="sp c">✧</i><i class="sp d">✦</i>
+        </div>
+        <h1 id="magicTitle">Sprinkling some magic…</h1>
+        <p class="lead">Watch the TV! 📺</p>
+      </section>
+
+      <!-- Give the story idea / answer a question -->
+      <section class="screen" data-screen="talk">
+        <div class="talk-head">
+          <img class="hero-thumb glow" id="heroThumb" alt="" />
+          <div class="bubble"><h1 id="talkTitle">What adventure should your hero go on?</h1></div>
+        </div>
+        <button class="mic" id="micBtn" aria-label="Tap and say your idea">
+          <span class="ring r1"></span><span class="ring r2"></span>
+          <span class="mic-icon" aria-hidden="true">🎤</span>
+          <span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+          <span class="mic-label" id="micLabel">Tap and tell me!</span>
+        </button>
+        <p class="heard" id="heardText" aria-live="polite"></p>
+        <div class="chips" id="chips"></div>
+        <button class="bedtime" id="bedtimeBtn" type="button" aria-pressed="false">☀️ Bedtime story: off</button>
+        <form class="type-row" id="typeForm">
+          <input id="typeInput" type="text" maxlength="160" placeholder="…or type it here" autocomplete="off" />
+          <button class="btn primary small" type="submit">Send</button>
+        </form>
+      </section>
+
+      <!-- Story playing -->
+      <section class="screen" data-screen="telling">
+        <img class="hero-thumb bounce glow" id="heroThumb2" alt="" />
+        <h1>Look at the TV! 📺</h1>
+        <p class="lead" id="tellingText">Your story is being painted…</p>
+      </section>
+
+      <!-- Done -->
+      <section class="screen" data-screen="done">
+        <div class="trophy" aria-hidden="true">🏆</div>
+        <h1>The end!</h1>
+        <a class="btn primary big" id="bookLink" href="#" target="_blank" rel="noopener" hidden>📖 Open our storybook</a>
+        <button class="btn ghost" id="bookShare" hidden>📤 Share it with family</button>
+        <p class="lead">Use the TV remote to start a new story, or draw a brand-new hero.</p>
+ <label class="btn ghost">
+          ✏️ Draw a new hero
+          <input id="newHeroInput" type="file" accept="image/*" capture="environment" hidden />
+        </label>
+      </section>
+
+      <!-- Error -->
+      <section class="screen" data-screen="error">
+        <div class="paper-icon" aria-hidden="true">🙈</div>
+        <h1>Oops!</h1>
+        <p class="lead" id="errorText">Something went wrong.</p>
+        <button class="btn primary" onclick="location.reload()">Try again</button>
+      </section>
+    </main>
+
+    <script src="/phone/cutout.js"></script>
+    <script src="/phone/phone.js"></script>
+  </body>
+</html>
