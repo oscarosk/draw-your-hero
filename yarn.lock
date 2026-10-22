@@ -8311,6 +8311,14 @@ __metadata:
   languageName: node
   linkType: hard
 
+"draw-your-hero@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "draw-your-hero@workspace:."
+  dependencies:
+    prettier: "npm:^3.3.3"
+  languageName: unknown
+  linkType: soft
+
 "dunder-proto@npm:^1.0.0, dunder-proto@npm:^1.0.1":
   version: 1.0.1
   resolution: "dunder-proto@npm:1.0.1"
@@ -17000,15 +17008,6 @@ __metadata:
   checksum: 10c0/3daf9c56c0ce67a6a8e256307065b78899470fdf4632bac5894bc1556ae9fdd96c1881813b025ed250d33c624518861102f2daf0bef927d3e731118d105418e0
   languageName: node
   linkType: hard
-
-"react-native-multi-tv-app-sample@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "react-native-multi-tv-app-sample@workspace:."
-  dependencies:
-    husky: "npm:^9.1.6"
-    prettier: "npm:^3.3.3"
-  languageName: unknown
-  linkType: soft
 
 "react-native-pixel-perfect@npm:*, react-native-pixel-perfect@npm:^1.0.2":
   version: 1.0.2
